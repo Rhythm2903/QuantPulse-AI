@@ -158,3 +158,31 @@ def test_get_quote_falls_back_to_finnhub_without_alpaca_keys(mock_finnhub, clien
     data = response.get_json()
     assert data["price"] == 190.0
     assert data["pc"] == 188.0
+
+
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+@patch("api.index.finnhub_client")
+def test_get_quote_fills_pc_from_finnhub_when_alpaca_price_succeeds_but_bars_fails(
+    mock_finnhub, mock_client_cls, client
+):
+    mock_client = MagicMock()
+    # Alpaca latest trade succeeds
+    mock_client.get_stock_latest_trade.return_value = {
+        "AAPL": SimpleNamespace(price=187.42, timestamp=pd.Timestamp("2026-08-23T14:00:00Z"))
+    }
+    # Alpaca bars returns empty (too few bars for previous close)
+    mock_client.get_stock_bars.return_value.df = pd.DataFrame()
+    mock_client_cls.return_value = mock_client
+
+    # Finnhub provides the previous close
+    mock_finnhub.quote.return_value = {"c": None, "pc": 185.5}
+
+    response = client.get("/api/get-quote?symbol=AAPL")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["symbol"] == "AAPL"
+    assert data["price"] == 187.42  # From Alpaca
+    assert data["pc"] == 185.5      # From Finnhub (Alpaca bars failed)

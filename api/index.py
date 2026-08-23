@@ -161,29 +161,41 @@ def get_quote():
     price = None
     pc = None
 
+    # Try to get latest trade price from Alpaca
     try:
         trade = alpaca_get_latest_trade(symbol)
         price = trade["price"]
-        pc = alpaca_get_previous_close(symbol)
     except Exception as err:
-        print(f"Alpaca quote fetch failed for {symbol}: {err}")
+        print(f"Alpaca latest trade fetch failed for {symbol}: {err}")
 
-    if price is None and finnhub_client:
+    # If we got a price from Alpaca, try to get previous close independently
+    if price is not None:
+        try:
+            pc = alpaca_get_previous_close(symbol)
+        except Exception as err:
+            print(f"Alpaca previous close fetch failed for {symbol}: {err}")
+
+    # Fall back to Finnhub for any missing values
+    if (price is None or pc is None) and finnhub_client:
         try:
             res = finnhub_client.quote(symbol)
-            if res and res.get("c"):
-                price = res.get("c")
-                pc = res.get("pc")
+            if res:
+                if price is None and res.get("c"):
+                    price = res.get("c")
+                if pc is None and res.get("pc"):
+                    pc = res.get("pc")
         except Exception:
             pass
 
+    # Fall back to yfinance if price is still missing
     if price is None:
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(period="5d", interval="1d")
             if not df.empty:
                 price = float(df["Close"].iloc[-1])
-                pc = float(df["Close"].iloc[-2]) if len(df) > 1 else price
+                if pc is None and len(df) > 1:
+                    pc = float(df["Close"].iloc[-2])
         except Exception as e:
             print(f"yfinance fetch error: {e}")
 
