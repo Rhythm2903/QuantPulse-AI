@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Dashboard | MarketScholar</title>
+    <!-- Bootstrap 5 CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f8f9fa; }
+        .dashboard-header { background-color: #212529; color: white; padding: 30px 0; margin-bottom: 30px; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 24px; }
+        .stat-card { border-left: 5px solid #0d6efd; }
+        .stat-card.success { border-left-color: #198754; }
+        .table th { background-color: #f1f3f5; }
+        .chart-box { background-color: #ffffff; border: 1px solid #e9ecef; border-radius: 8px; padding: 12px; }
+    </style>
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark border-bottom border-secondary">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">MarketScholar</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+                    <li class="nav-item"><a class="nav-link active" aria-current="page" href="/dashboard">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/learn">Learn</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <div class="dashboard-header shadow-sm">
+        <div class="container">
+            <h1 class="fw-bold">Paper Trading Floor</h1>
+            <p class="text-muted mb-0">Simulate investments with real-time market data and zero financial risk.</p>
+        </div>
+    </div>
+
+    <div class="container mb-5">
+        
+        <!-- Account Overview -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card stat-card p-4 h-100">
+                    <h6 class="text-muted text-uppercase fw-bold mb-2">Buying Power (Cash)</h6>
+                    <h2 class="fw-bold mb-0 text-primary" id="cashBalance">$100,000.00</h2>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card success p-4 h-100">
+                    <h6 class="text-muted text-uppercase fw-bold mb-2">Total Equity Value</h6>
+                    <h2 class="fw-bold mb-0 text-success" id="equityValue">$0.00</h2>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card p-4 h-100" style="border-left-color: #6c757d;">
+                    <h6 class="text-muted text-uppercase fw-bold mb-2">Total Portfolio Value</h6>
+                    <h2 class="fw-bold mb-0 text-dark" id="totalValue">$100,000.00</h2>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Trade Station -->
+            <div class="col-lg-4 mb-4">
+                <div class="card p-4 h-100">
+                    <h4 class="fw-bold text-secondary mb-4">Trade Station</h4>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Search Ticker Symbol</label>
+                        <div class="input-group">
+                            <input type="text" id="symbolInput" class="form-control text-uppercase" placeholder="e.g., AAPL">
+                            <button class="btn btn-outline-primary" type="button" onclick="searchQuote()" id="searchBtn">Get Quote</button>
+                        </div>
+                    </div>
+
+                    <!-- Quote Result Area -->
+                    <div id="quoteArea" class="bg-light p-3 rounded-3 mb-3" style="display: none;">
+                        <h5 id="quoteSymbol" class="fw-bold mb-2">--</h5>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="text-muted small">Current / Pre-Market:</span>
+                            <span id="quotePrice" class="text-dark fw-bold">$--</span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted small">Last Close:</span>
+                            <span id="quotePc" class="text-secondary fw-semibold">$--</span>
+                        </div>
+                        <p id="quoteError" class="text-danger small mt-2 mb-0" style="display: none;"></p>
+                    </div>
+
+                    <!-- Price Trend Graph Container -->
+                    <div id="chartContainer" class="chart-box mb-4" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-secondary small">Price Trend</span>
+                            <span id="chartSubtext" class="text-muted small">Recent Data</span>
+                        </div>
+                        <div style="position: relative; height: 180px; width: 100%;">
+                            <canvas id="stockChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Order Form -->
+                    <div id="orderArea" style="opacity: 0.5; pointer-events: none;">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Shares Quantity</label>
+                            <input type="number" id="qtyInput" class="form-control" min="1" value="1" oninput="calculateTotal()">
+                        </div>
+                        <div class="d-flex justify-content-between mb-4">
+                            <span class="text-muted">Estimated Cost/Proceeds:</span>
+                            <span class="fw-bold text-dark" id="orderTotal">$0.00</span>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <button class="btn btn-success w-100 fw-bold" onclick="executeTrade('BUY')">BUY</button>
+                            </div>
+                            <div class="col-6">
+                                <button class="btn btn-danger w-100 fw-bold" onclick="executeTrade('SELL')">SELL</button>
+                            </div>
+                        </div>
+                        <div id="tradeMessage" class="mt-3 text-center small fw-bold"></div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Portfolio Table -->
+            <div class="col-lg-8 mb-4">
+                <div class="card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h4 class="fw-bold text-secondary mb-0">Open Positions</h4>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="refreshPortfolioPrices()" id="refreshBtn">
+                            Refresh Prices
+                        </button>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Shares</th>
+                                    <th>Avg Price</th>
+                                    <th>Current Price</th>
+                                    <th>Market Value</th>
+                                    <th>Total P/L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="portfolioTableBody">
+                                <!-- Populated via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <button class="btn btn-link text-danger text-decoration-none" onclick="resetAccount()">Reset Account (Start over with $100k)</button>
+        </div>
+
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Paper Trading Engine JS -->
+    <script>
+        const INITIAL_CASH = 100000;
+        let activeQuote = null;
+        let stockChartInstance = null;
+        
+        let portfolio = JSON.parse(localStorage.getItem('marketScholar_portfolio')) || {
+            cash: INITIAL_CASH,
+            positions: {}
+        };
+
+        const formatMoney = (amount) => {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateDashboardUI();
+            refreshPortfolioPrices();
+
+            setInterval(() => {
+                if (activeQuote && activeQuote.symbol) {
+                    searchQuote();
+                }
+                refreshPortfolioPrices();
+            }, 600000);
+        });
+
+        // Search stock quote and render graph
+        async function searchQuote() {
+            const symbol = document.getElementById('symbolInput').value.trim().toUpperCase();
+            const searchBtn = document.getElementById('searchBtn');
+            const quoteArea = document.getElementById('quoteArea');
+            const quoteError = document.getElementById('quoteError');
+            
+            if (!symbol) return;
+
+            searchBtn.disabled = true;
+            searchBtn.innerText = '...';
+            quoteError.style.display = 'none';
+
+            try {
+                const response = await fetch(`/api/get-quote?symbol=${symbol}`);
+                const data = await response.json();
+
+                if (response.ok && data.price) {
+                    activeQuote = { symbol: data.symbol, price: data.price, pc: data.pc || data.previous_close };
+                    
+                    document.getElementById('quoteSymbol').innerText = data.symbol;
+                    document.getElementById('quotePrice').innerText = formatMoney(data.price);
+                    document.getElementById('quotePc').innerText = formatMoney(data.pc || data.previous_close || data.price);
+                    
+                    quoteArea.style.display = 'block';
+                    
+                    // Render trend chart matching attached design
+                    if (data.history && data.history.length > 0) {
+                        renderStockChart(data.history);
+                    } else {
+                        hideStockChart();
+                    }
+
+                    // Enable Order Area
+                    const orderArea = document.getElementById('orderArea');
+                    orderArea.style.opacity = '1';
+                    orderArea.style.pointerEvents = 'auto';
+                    
+                    calculateTotal();
+                } else {
+                    throw new Error(data.error || "Symbol not found or data unavailable.");
+                }
+            } catch (error) {
+                activeQuote = null;
+                hideStockChart();
+                document.getElementById('orderArea').style.opacity = '0.5';
+                document.getElementById('orderArea').style.pointerEvents = 'none';
+                quoteArea.style.display = 'block';
+                document.getElementById('quoteSymbol').innerText = symbol;
+                document.getElementById('quotePrice').innerText = 'Error';
+                document.getElementById('quotePc').innerText = '--';
+                quoteError.innerText = error.message;
+                quoteError.style.display = 'block';
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.innerText = 'Get Quote';
+            }
+        }
+
+        // Render Chart.js line graph matching the user's reference design
+        function renderStockChart(historyData) {
+            const chartContainer = document.getElementById('chartContainer');
+            chartContainer.style.display = 'block';
+
+            const ctx = document.getElementById('stockChart').getContext('2d');
+            const labels = historyData.map(item => item.date);
+            const prices = historyData.map(item => item.price);
+
+            if (stockChartInstance) {
+                stockChartInstance.destroy();
+            }
+
+            stockChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Price ($)',
+                        data: prices,
+                        borderColor: '#f25443',
+                        backgroundColor: 'transparent',
+                        borderWidth: 3,
+                        tension: 0,
+                        pointBackgroundColor: '#f25443',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ' Price: $' + context.parsed.y.toFixed(2);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#8898aa', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: '#f0f0f0' },
+                            ticks: { 
+                                color: '#8898aa', 
+                                font: { size: 10 },
+                                callback: (val) => '$' + val 
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function hideStockChart() {
+            if (stockChartInstance) {
+                stockChartInstance.destroy();
+                stockChartInstance = null;
+            }
+            document.getElementById('chartContainer').style.display = 'none';
+        }
+
+        function calculateTotal() {
+            if (!activeQuote) return;
+            const qty = parseInt(document.getElementById('qtyInput').value) || 0;
+            const total = qty * activeQuote.price;
+            document.getElementById('orderTotal').innerText = formatMoney(total);
+        }
+
+        function executeTrade(action) {
+            if (!activeQuote) return;
+            
+            const qty = parseInt(document.getElementById('qtyInput').value);
+            const msgBox = document.getElementById('tradeMessage');
+            
+            if (!qty || qty <= 0) {
+                showMessage(msgBox, "Please enter a valid quantity.", "text-danger");
+                return;
+            }
+
+            const totalCost = qty * activeQuote.price;
+            const symbol = activeQuote.symbol;
+
+            if (action === 'BUY') {
+                if (portfolio.cash < totalCost) {
+                    showMessage(msgBox, "Insufficient buying power.", "text-danger");
+                    return;
+                }
+                
+                portfolio.cash -= totalCost;
+                
+                if (portfolio.positions[symbol]) {
+                    const currentPos = portfolio.positions[symbol];
+                    const totalShares = currentPos.shares + qty;
+                    const totalValue = (currentPos.shares * currentPos.avgPrice) + totalCost;
+                    portfolio.positions[symbol] = {
+                        shares: totalShares,
+                        avgPrice: totalValue / totalShares
+                    };
+                } else {
+                    portfolio.positions[symbol] = { shares: qty, avgPrice: activeQuote.price };
+                }
+                
+                showMessage(msgBox, `Successfully bought ${qty} shares of ${symbol}.`, "text-success");
+            } 
+            else if (action === 'SELL') {
+                const currentPos = portfolio.positions[symbol];
+                
+                if (!currentPos || currentPos.shares < qty) {
+                    showMessage(msgBox, "Insufficient shares to sell.", "text-danger");
+                    return;
+                }
+
+                portfolio.cash += totalCost;
+                
+                currentPos.shares -= qty;
+                if (currentPos.shares === 0) {
+                    delete portfolio.positions[symbol];
+                }
+                
+                showMessage(msgBox, `Successfully sold ${qty} shares of ${symbol}.`, "text-success");
+            }
+
+            localStorage.setItem('marketScholar_portfolio', JSON.stringify(portfolio));
+            updateDashboardUI();
+            refreshPortfolioPrices();
+        }
+
+        function showMessage(element, text, className) {
+            element.className = `mt-3 text-center small fw-bold ${className}`;
+            element.innerText = text;
+            setTimeout(() => { element.innerText = ""; }, 4000);
+        }
+
+        function updateDashboardUI() {
+            document.getElementById('cashBalance').innerText = formatMoney(portfolio.cash);
+        }
+
+        async function refreshPortfolioPrices() {
+            const tbody = document.getElementById('portfolioTableBody');
+            const refreshBtn = document.getElementById('refreshBtn');
+            const symbols = Object.keys(portfolio.positions);
+            
+            refreshBtn.disabled = true;
+            refreshBtn.innerText = 'Refreshing...';
+            
+            if (symbols.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No open positions. Use the Trade Station to buy shares.</td></tr>';
+                document.getElementById('equityValue').innerText = formatMoney(0);
+                document.getElementById('totalValue').innerText = formatMoney(portfolio.cash);
+                refreshBtn.disabled = false;
+                refreshBtn.innerText = 'Refresh Prices';
+                return;
+            }
+
+            let totalEquity = 0;
+            let tableHTML = '';
+
+            for (const symbol of symbols) {
+                const pos = portfolio.positions[symbol];
+                let currentPrice = pos.avgPrice;
+                
+                try {
+                    const response = await fetch(`/api/get-quote?symbol=${symbol}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        currentPrice = data.price;
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch price for " + symbol);
+                }
+
+                const marketValue = currentPrice * pos.shares;
+                const totalCost = pos.avgPrice * pos.shares;
+                const profitLoss = marketValue - totalCost;
+                const plColor = profitLoss >= 0 ? 'text-success' : 'text-danger';
+                
+                totalEquity += marketValue;
+
+                tableHTML += `
+                    <tr>
+                        <td class="fw-bold text-primary">${symbol}</td>
+                        <td>${pos.shares}</td>
+                        <td>${formatMoney(pos.avgPrice)}</td>
+                        <td>${formatMoney(currentPrice)}</td>
+                        <td class="fw-semibold">${formatMoney(marketValue)}</td>
+                        <td class="${plColor} fw-bold">${profitLoss >= 0 ? '+' : ''}${formatMoney(profitLoss)}</td>
+                    </tr>
+                `;
+            }
+
+            tbody.innerHTML = tableHTML;
+            document.getElementById('equityValue').innerText = formatMoney(totalEquity);
+            document.getElementById('totalValue').innerText = formatMoney(portfolio.cash + totalEquity);
+            
+            refreshBtn.disabled = false;
+            refreshBtn.innerText = 'Refresh Prices';
+        }
+
+        function resetAccount() {
+            if (confirm("Are you sure you want to reset your account? All open positions and history will be deleted.")) {
+                portfolio = { cash: INITIAL_CASH, positions: {} };
+                localStorage.setItem('marketScholar_portfolio', JSON.stringify(portfolio));
+                activeQuote = null;
+                hideStockChart();
+                document.getElementById('orderArea').style.opacity = '0.5';
+                document.getElementById('orderArea').style.pointerEvents = 'none';
+                document.getElementById('quoteArea').style.display = 'none';
+                updateDashboardUI();
+                refreshPortfolioPrices();
+            }
+        }
+    </script>
+</body>
+</html>

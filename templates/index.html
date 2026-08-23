@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MarketScholar | Financial Education Simulator</title>
+    <!-- Bootstrap 5 CDN for easy styling -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .hero-section { background-color: #0d6efd; color: white; padding: 80px 20px; border-radius: 0 0 20px 20px; margin-bottom: 40px; }
+        .feature-card { height: 100%; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s; display: flex; flex-direction: column; }
+        .feature-card:hover { transform: translateY(-5px); }
+        .feature-icon { font-size: 2rem; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+    <!-- Hero Section -->
+    <div class="text-center hero-section">
+        <h1 class="display-4 fw-bold">Welcome to MarketScholar</h1>
+        <p class="lead mt-3 max-w-75 mx-auto">
+            A zero-risk sandbox powered by live US market data to build your financial literacy.
+        </p>
+        <a href="/dashboard" class="btn btn-light btn-lg mt-4 fw-bold text-primary">Enter the Trading Floor</a>
+    </div>
+
+    <!-- Features Overview -->
+    <div class="container mb-5">
+        <h2 class="text-center mb-5 fw-bold text-secondary">Platform Features</h2>
+        <div class="row g-4">
+            
+            <!-- Feature 1 -->
+            <div class="col-md-4">
+                <div class="card feature-card p-4 text-center">
+                    <div class="feature-icon">📈</div>
+                    <h3 class="h5 fw-bold">The Trading Floor & Sectorial Investing</h3>
+                    <p class="text-muted mt-2 mb-4">
+                        Experience a live portfolio dashboard with real-time stock data. Learn proper capital allocation through our system's strict risk management and diversification rules.
+                    </p>
+                    <a href="/dashboard" class="btn btn-outline-primary mt-auto">Go to Dashboard</a>
+                </div>
+            </div>
+
+            <!-- Feature 2: Budgeting Calendar -->
+            <div class="col-md-4">
+                <div class="card feature-card p-4 text-center">
+                    <div class="feature-icon">📅</div>
+                    <h3 class="h5 fw-bold">Budget & Expense Calendar</h3>
+                    <p class="text-muted mt-2 mb-4">
+                        Track recurring bills, rent due dates, paydays, and grocery schedules in an interactive monthly calendar to build cashflow habits.
+                    </p>
+                    <a href="/budget" class="btn btn-outline-primary mt-auto">Open Budget Calendar</a>
+                </div>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="col-md-4">
+                <div class="card feature-card p-4 text-center">
+                    <div class="feature-icon">📚</div>
+                    <h3 class="h5 fw-bold">Financial Knowledge Hub</h3>
+                    <p class="text-muted mt-2 mb-4">
+                        Master trading concepts, candlestick reading, and market terminology. Pass quizzes to unlock advanced trading privileges and track your mastery.
+                    </p>
+                    <a href="/learn" class="btn btn-outline-primary mt-auto">Start Learning</a>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 

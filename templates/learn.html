@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learn | MarketScholar</title>
+    <!-- Bootstrap 5 CDN for easy styling -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Marked.js CDN to parse Markdown formatting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { background-color: #f8f9fa; }
+        .hero-section { background-color: #198754; color: white; padding: 60px 20px; border-radius: 0 0 20px 20px; margin-bottom: 40px; }
+        .module-card { height: 100%; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s; display: flex; flex-direction: column; }
+        .module-card:hover { transform: translateY(-5px); }
+        .badge-budgeting { background-color: #0d6efd; }
+        .badge-debt { background-color: #dc3545; }
+        .badge-investing { background-color: #ffc107; color: #000; }
+        .ai-card { border: 2px solid #198754; border-radius: 12px; background-color: #ffffff; }
+
+        /* Custom AI Response Section Bubbles & Colors */
+        .ai-bubble {
+            background-color: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-left: 5px solid #198754;
+            border-radius: 10px;
+            padding: 18px 22px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        }
+        .ai-bubble h1, .ai-bubble h2, .ai-bubble h3, .ai-bubble h4, .ai-bubble h5, .ai-bubble h6 {
+            color: #0d6efd; /* Distinct header text color */
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 12px;
+        }
+        .ai-bubble p, .ai-bubble li, .ai-bubble td {
+            color: #212529; /* Normal text color */
+            font-size: 0.98rem;
+            line-height: 1.6;
+        }
+        .ai-bubble p:last-child, .ai-bubble ul:last-child, .ai-bubble ol:last-child, .ai-bubble table:last-child {
+            margin-bottom: 0;
+        }
+        .ai-bubble table {
+            width: 100%;
+            margin-top: 12px;
+            margin-bottom: 12px;
+            border-collapse: collapse;
+            background-color: #ffffff;
+        }
+        .ai-bubble th, .ai-bubble td {
+            border: 1px solid #dee2e6;
+            padding: 10px 14px;
+            text-align: left;
+        }
+        .ai-bubble th {
+            background-color: #e9ecef;
+            color: #0d6efd;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">MarketScholar</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link active" aria-current="page" href="/learn">Learn</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <div class="text-center hero-section">
+        <h1 class="display-5 fw-bold">Personal Finance Hub</h1>
+        <p class="lead mt-3 mx-auto" style="max-width: 600px;">
+            Master your money. Explore modules on budgeting, managing debt, and building wealth through investing.
+        </p>
+        <div class="container mt-4" style="max-width: 500px;">
+            <input type="text" id="searchInput" class="form-control form-control-lg shadow-sm" placeholder="Search topics (e.g., Budgeting, Debt)...">
+        </div>
+    </div>
+
+    <div class="container mb-5">
+        
+        <!-- Groq AI Finance Assistant Widget -->
+        <div class="card ai-card p-4 mb-5 shadow-sm">
+            <div class="d-flex align-items-center mb-3">
+                <span class="fs-3 me-2">🤖</span>
+                <h3 class="h5 fw-bold mb-0 text-success">MarketScholar AI Assistant (Powered by Groq)</h3>
+            </div>
+            <p class="text-muted small">Have a custom question about personal finance or investing? Ask our AI tutor below.</p>
+            <div class="input-group mb-3">
+                <input type="text" id="aiQuestionInput" class="form-control" placeholder="e.g., What is a credit card?">
+                <button class="btn btn-success" type="button" id="askAiBtn" onclick="askAiTutor()">Ask AI</button>
+            </div>
+            <div id="aiResponseContainer" class="mt-3" style="display: none;">
+                <div id="aiResponseText"></div>
+            </div>
+        </div>
+
+        <!-- Recommended Section -->
+        <div id="recommendedWrapper">
+            <h2 class="mb-4 fw-bold text-secondary">Recommended for You</h2>
+            <div class="row g-4 mb-5" id="recommendedContainer">
+                {% for module in modules %}
+                    {% if module.recommended %}
+                    <div class="col-md-4 module-item" data-title="{{ module.title | lower }}" data-category="{{ module.category | lower }}">
+                        <div class="card module-card p-3">
+                            <div class="card-body d-flex flex-column">
+                                <div>
+                                    <span class="badge mb-3 
+                                        {% if module.category == 'Budgeting' %}badge-budgeting
+                                        {% elif module.category == 'Debt' %}badge-debt
+                                        {% else %}badge-investing{% endif %}">{{ module.category }}</span>
+                                    <h5 class="card-title fw-bold">{{ module.title }}</h5>
+                                    <p class="card-text text-muted">{{ module.description }}</p>
+                                </div>
+                                <a href="/learn/{{ module.id }}" class="btn btn-outline-success btn-sm w-100 mt-auto">Start Module</a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- All Modules Section -->
+        <h2 class="mb-4 fw-bold text-secondary">All Modules</h2>
+        <div class="row g-4" id="allModulesContainer">
+            {% for module in modules %}
+            <div class="col-md-4 module-item" data-title="{{ module.title | lower }}" data-category="{{ module.category | lower }}">
+                <div class="card module-card p-3">
+                    <div class="card-body d-flex flex-column">
+                        <div>
+                            <span class="badge mb-3 
+                                {% if module.category == 'Budgeting' %}badge-budgeting
+                                {% elif module.category == 'Debt' %}badge-debt
+                                {% else %}badge-investing{% endif %}">{{ module.category }}</span>
+                            <h5 class="card-title fw-bold">{{ module.title }}</h5>
+                            <p class="card-text text-muted">{{ module.description }}</p>
+                        </div>
+                        <a href="/learn/{{ module.id }}" class="btn btn-outline-success btn-sm w-100 mt-auto">Start Module</a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <!-- No Results Message -->
+        <div id="noResults" class="text-center mt-5" style="display: none;">
+            <p class="lead text-muted">No modules found matching your search.</p>
+        </div>
+
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Search and AI Interaction Logic -->
+    <script>
+        document.getElementById('searchInput').addEventListener('keyup', function(e) {
+            const term = e.target.value.toLowerCase();
+            const items = document.querySelectorAll('.module-item');
+            const recommendedWrapper = document.getElementById('recommendedWrapper');
+            let visibleCount = 0;
+            
+            if(term.length > 0) {
+                recommendedWrapper.style.display = 'none';
+            } else {
+                recommendedWrapper.style.display = 'block';
+            }
+
+            items.forEach(item => {
+                const title = item.getAttribute('data-title');
+                const category = item.getAttribute('data-category');
+                
+                if (title.includes(term) || category.includes(term)) {
+                    item.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            document.getElementById('noResults').style.display = visibleCount === 0 ? 'block' : 'none';
+        });
+
+        async function askAiTutor() {
+            const input = document.getElementById('aiQuestionInput');
+            const btn = document.getElementById('askAiBtn');
+            const responseContainer = document.getElementById('aiResponseContainer');
+            const responseText = document.getElementById('aiResponseText');
+            const question = input.value.trim();
+
+            if (!question) return;
+
+            btn.disabled = true;
+            btn.innerText = 'Thinking...';
+            responseContainer.style.display = 'block';
+            responseText.innerHTML = '<div class="text-muted p-2">Consulting Groq AI tutor...</div>';
+
+            try {
+                const res = await fetch('/api/ask-ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: question })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    responseText.innerHTML = formatAiResponseIntoBubbles(data.answer);
+                } else {
+                    responseText.innerHTML = '<div class="alert alert-danger mb-0">Error: ' + (data.error || 'Failed to fetch AI response.') + '</div>';
+                }
+            } catch (err) {
+                responseText.innerHTML = '<div class="alert alert-danger mb-0">Network error connecting to backend.</div>';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Ask AI';
+            }
+        }
+
+        function formatAiResponseIntoBubbles(rawText) {
+            // Split raw Markdown text by header boundaries
+            const sections = rawText.split(/(?=^#{1,6}\s)/m);
+            let htmlOutput = '';
+
+            sections.forEach(section => {
+                const trimmed = section.trim();
+                if (trimmed) {
+                    const parsedHtml = marked.parse(trimmed);
+                    htmlOutput += `<div class="ai-bubble">${parsedHtml}</div>`;
+                }
+            });
+
+            return htmlOutput;
+        }
+    </script>
+</body>
+</html>

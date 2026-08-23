@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Environment Variables
+.env
+
+# Vercel
+.vercel/
+
+# Unrelated scratch files (not part of this project)
+/dashboard.html
+/index.html
