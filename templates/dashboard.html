@@ -319,8 +319,8 @@
                     try {
                         const activeRangeBtn = document.querySelector('.chart-range-btn.chart-range-active');
                         const range = activeRangeBtn ? activeRangeBtn.dataset.range : '6M';
-                        await loadChartForSymbol(data.symbol, range);
                         showChartWidget();
+                        await loadChartForSymbol(data.symbol, range);
                         startLivePricePolling(data.symbol);
                     } catch (chartError) {
                         console.error('Chart load failed', chartError);
