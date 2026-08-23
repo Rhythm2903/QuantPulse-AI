@@ -15,3 +15,6 @@ env/
 # Unrelated scratch files (not part of this project)
 /dashboard.html
 /index.html
+
+# Git worktrees
+.worktrees/
