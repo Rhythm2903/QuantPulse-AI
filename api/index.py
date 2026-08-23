@@ -74,6 +74,18 @@ def alpaca_get_bars(symbol, range_key):
     ]
 
 
+def alpaca_get_latest_trade(symbol):
+    client = get_alpaca_client()
+    request_params = StockLatestTradeRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
+    latest_trades = client.get_stock_latest_trade(request_params)
+
+    if symbol not in latest_trades:
+        raise RuntimeError(f"No latest trade data for '{symbol}'.")
+
+    trade = latest_trades[symbol]
+    return {"price": round(float(trade.price), 2), "timestamp": int(trade.timestamp.timestamp())}
+
+
 # 1. Page Routes
 @app.route("/", methods=["GET"])
 def home():
@@ -104,6 +116,22 @@ def get_bars():
         return jsonify({"error": f"No bar data available for '{symbol}'."}), 404
 
     return jsonify({"symbol": symbol, "range": range_key, "bars": bars})
+
+
+@app.route("/api/get-live-price", methods=["GET"])
+def get_live_price():
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not symbol:
+        return jsonify({"error": "Symbol parameter is required."}), 400
+
+    try:
+        trade = alpaca_get_latest_trade(symbol)
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 503
+    except Exception as err:
+        return jsonify({"error": f"Alpaca request failed: {err}"}), 502
+
+    return jsonify({"symbol": symbol, "price": trade["price"], "timestamp": trade["timestamp"]})
 
 
 @app.route("/learn", methods=["GET"])

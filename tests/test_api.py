@@ -89,3 +89,34 @@ def test_get_bars_invalid_range_returns_400(client):
 def test_get_bars_without_keys_returns_503(client):
     response = client.get("/api/get-bars?symbol=AAPL&range=1M")
     assert response.status_code == 503
+
+
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+def test_get_live_price_returns_price(mock_client_cls, client):
+    mock_client = MagicMock()
+    mock_client.get_stock_latest_trade.return_value = {
+        "AAPL": SimpleNamespace(price=187.42, timestamp=pd.Timestamp("2026-08-23T14:00:00Z"))
+    }
+    mock_client_cls.return_value = mock_client
+
+    response = client.get("/api/get-live-price?symbol=AAPL")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["symbol"] == "AAPL"
+    assert data["price"] == 187.42
+    assert data["timestamp"] == int(pd.Timestamp("2026-08-23T14:00:00Z").timestamp())
+
+
+@patch("api.index.ALPACA_API_KEY", "")
+@patch("api.index.ALPACA_SECRET_KEY", "")
+def test_get_live_price_without_keys_returns_503(client):
+    response = client.get("/api/get-live-price?symbol=AAPL")
+    assert response.status_code == 503
+
+
+def test_get_live_price_missing_symbol_returns_400(client):
+    response = client.get("/api/get-live-price")
+    assert response.status_code == 400
