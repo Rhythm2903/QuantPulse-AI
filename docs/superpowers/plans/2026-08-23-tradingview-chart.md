@@ -4,18 +4,21 @@
 
 **Goal:** Replace the dashboard's small Chart.js price-trend line with a dark, TradingView-style candlestick/line chart (range switcher, SMA(20), volume) backed by Alpaca market data, with the price/OHLC updating every 10 seconds — and make Alpaca the primary quote source everywhere, with Finnhub/yfinance as fallback only.
 
-**Architecture:** Two new Flask routes (`/api/get-bars`, `/api/get-live-price`) added to the existing monolithic `api/index.py`, calling Alpaca's Market Data REST API directly via `requests` (no new dependency). The existing `/api/get-quote` route is updated to try Alpaca first. The dashboard's Trade Station chart is rebuilt on TradingView's Lightweight Charts JS library (CDN), replacing Chart.js for this view.
+**Architecture:** Two new Flask routes (`/api/get-bars`, `/api/get-live-price`) added to the existing monolithic `api/index.py`, calling Alpaca's Market Data API via the official `alpaca-py` SDK (already declared in `requirements.txt`). The existing `/api/get-quote` route is updated to try Alpaca first, falling back to the existing Finnhub/yfinance logic. The dashboard's Trade Station chart is rebuilt on TradingView's Lightweight Charts JS library (CDN), replacing Chart.js for this view.
 
-**Tech Stack:** Flask (existing), `requests` (existing, now actually imported/used), TradingView Lightweight Charts v4 (new, CDN, no build step), pytest + `unittest.mock` for backend tests (dev-only, not deployed).
+**Tech Stack:** Flask (existing), `alpaca-py==0.27.0` (already in `requirements.txt`, not yet used by any active code), `pandas` (already in `requirements.txt`, used via `alpaca-py`'s `.df` accessor), TradingView Lightweight Charts v4 (new, CDN, no build step), pytest + `unittest.mock` for backend tests (dev-only, not deployed).
 
 ## Global Constraints
 
 - All backend logic stays in the single file `api/index.py` (per `structure.txt`).
 - The app deploys to Vercel as a serverless function (`vercel.json`) — no persistent connections, so live updates are 10-second REST polling from the browser, not a WebSocket stream.
-- All Alpaca Market Data requests use `feed=iex` (the only feed available on the free/paper plan).
-- No new runtime dependency is added to `requirements.txt` — Alpaca calls use `requests`, already listed there. `pytest` goes in a separate `requirements-dev.txt`, not deployed to Vercel.
-- Alpaca is the primary source for both the new chart endpoints and the existing `/api/get-quote`; Finnhub/yfinance remain only as a fallback in `/api/get-quote` if Alpaca is unavailable or unconfigured.
+- All Alpaca Market Data requests use `feed=DataFeed.IEX` (the only feed available on the free/paper plan).
+- Alpaca access goes through the `alpaca-py` SDK (`StockHistoricalDataClient`, `StockBarsRequest`, `StockLatestTradeRequest`), not raw `requests` calls — `alpaca-py` is already a declared dependency.
+- `/api/get-quote` keeps Finnhub/yfinance as a fallback if Alpaca fails or is unconfigured — `finnhub-python` and `yfinance` must be (and now are, as of this plan's setup) active entries in `requirements.txt`, not commented out.
+- `pytest` goes in a separate `requirements-dev.txt`, not deployed to Vercel.
+- There is a large commented-out draft block at the bottom of `api/index.py` (an earlier, unrelated Alpaca+Groq experiment) and a `# groq==0.9.0` comment at the top of `requirements.txt`. **Leave both untouched** — they are out of scope for this plan.
 - `templates/dashboard.html` keeps the multi-page architecture rule — only this file changes on the frontend.
+- Bar/trade timestamps returned by the backend are Unix seconds (integers), not ISO strings — this is what TradingView Lightweight Charts consumes directly, no frontend date parsing needed.
 
 ---
 
@@ -26,20 +29,12 @@
 - Create: `api/__init__.py`
 - Create: `conftest.py`
 - Create: `tests/test_api.py`
-- Modify: `api/index.py` (imports at top; helpers + new route added after the existing `finnhub_client` setup, i.e. after current line 10, before the page routes)
+- Modify: `api/index.py` (imports at top; helpers + new route added after the existing `finnhub_client` setup, i.e. after current line 10, before the page routes — insert **above** the commented-out draft block at the bottom of the file, which must stay untouched)
 
 **Interfaces:**
-- Produces (used by later tasks): `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_DATA_URL`, `ALPACA_HEADERS`, `alpaca_configured() -> bool`, `RANGE_TO_ALPACA: dict`, `alpaca_get_bars(symbol: str, range_key: str) -> list[dict]` (each dict: `{time, open, high, low, close, volume}`), route `GET /api/get-bars?symbol=&range=` returning `{"symbol": str, "range": str, "bars": [...]}`.
+- Produces (used by later tasks): `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `alpaca_configured() -> bool`, `get_alpaca_client() -> StockHistoricalDataClient` (raises `RuntimeError` if not configured), `RANGE_TO_ALPACA: dict` (range key -> `(TimeFrame, lookback_days)`), `_get_stock_bars(symbol: str, timeframe: TimeFrame, days: int) -> list[dict]` (raw pandas records, each with `timestamp`/`open`/`high`/`low`/`close`/`volume` keys), `alpaca_get_bars(symbol: str, range_key: str) -> list[dict]` (each dict: `{time: int, open: float, high: float, low: float, close: float, volume: int}`, `time` is Unix seconds), route `GET /api/get-bars?symbol=&range=` returning `{"symbol": str, "range": str, "bars": [...]}`.
 
-- [ ] **Step 1: Initialize git and commit the current baseline**
-
-```bash
-git init
-git add -A
-git commit -m "chore: initial commit of existing MarketScholar app"
-```
-
-- [ ] **Step 2: Add dev test dependencies and package scaffolding**
+- [ ] **Step 1: Add dev test dependencies and package scaffolding**
 
 Create `requirements-dev.txt`:
 
@@ -64,13 +59,15 @@ Install dev dependencies:
 pip install -r requirements-dev.txt
 ```
 
-- [ ] **Step 3: Write the failing tests for `/api/get-bars`**
+- [ ] **Step 2: Write the failing tests for `/api/get-bars`**
 
 Create `tests/test_api.py`:
 
 ```python
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from api.index import app
@@ -83,24 +80,36 @@ def client():
         yield test_client
 
 
-def mock_response(json_data, status_code=200):
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_data
-    resp.raise_for_status.return_value = None
-    return resp
+def make_bars_df(symbol, rows):
+    if not rows:
+        return pd.DataFrame()
+
+    idx = pd.MultiIndex.from_tuples(
+        [(symbol, pd.Timestamp(r["timestamp"], tz="UTC")) for r in rows],
+        names=["symbol", "timestamp"],
+    )
+    return pd.DataFrame(
+        {
+            "open": [r["open"] for r in rows],
+            "high": [r["high"] for r in rows],
+            "low": [r["low"] for r in rows],
+            "close": [r["close"] for r in rows],
+            "volume": [r["volume"] for r in rows],
+        },
+        index=idx,
+    )
 
 
 @patch("api.index.ALPACA_API_KEY", "test-key")
 @patch("api.index.ALPACA_SECRET_KEY", "test-secret")
-@patch("api.index.requests.get")
-def test_get_bars_returns_candles(mock_get, client):
-    mock_get.return_value = mock_response({
-        "bars": [
-            {"t": "2026-08-20T00:00:00Z", "o": 100.0, "h": 105.0, "l": 99.0, "c": 103.0, "v": 1000},
-            {"t": "2026-08-21T00:00:00Z", "o": 103.0, "h": 108.0, "l": 102.0, "c": 107.0, "v": 1200},
-        ]
-    })
+@patch("api.index.StockHistoricalDataClient")
+def test_get_bars_returns_candles(mock_client_cls, client):
+    mock_client = MagicMock()
+    mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
+        {"timestamp": "2026-08-20T00:00:00Z", "open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0, "volume": 1000},
+        {"timestamp": "2026-08-21T00:00:00Z", "open": 103.0, "high": 108.0, "low": 102.0, "close": 107.0, "volume": 1200},
+    ])
+    mock_client_cls.return_value = mock_client
 
     response = client.get("/api/get-bars?symbol=AAPL&range=1M")
 
@@ -108,17 +117,22 @@ def test_get_bars_returns_candles(mock_get, client):
     data = response.get_json()
     assert data["symbol"] == "AAPL"
     assert data["range"] == "1M"
-    assert data["bars"] == [
-        {"time": "2026-08-20T00:00:00Z", "open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0, "volume": 1000},
-        {"time": "2026-08-21T00:00:00Z", "open": 103.0, "high": 108.0, "low": 102.0, "close": 107.0, "volume": 1200},
-    ]
+    assert len(data["bars"]) == 2
+    assert data["bars"][0]["open"] == 100.0
+    assert data["bars"][0]["high"] == 105.0
+    assert data["bars"][0]["low"] == 99.0
+    assert data["bars"][0]["close"] == 103.0
+    assert data["bars"][0]["volume"] == 1000
+    assert data["bars"][0]["time"] == int(pd.Timestamp("2026-08-20T00:00:00Z").timestamp())
 
 
 @patch("api.index.ALPACA_API_KEY", "test-key")
 @patch("api.index.ALPACA_SECRET_KEY", "test-secret")
-@patch("api.index.requests.get")
-def test_get_bars_no_data_returns_404(mock_get, client):
-    mock_get.return_value = mock_response({"bars": []})
+@patch("api.index.StockHistoricalDataClient")
+def test_get_bars_no_data_returns_404(mock_client_cls, client):
+    mock_client = MagicMock()
+    mock_client.get_stock_bars.return_value.df = pd.DataFrame()
+    mock_client_cls.return_value = mock_client
 
     response = client.get("/api/get-bars?symbol=ZZZZ&range=1M")
 
@@ -143,12 +157,12 @@ def test_get_bars_without_keys_returns_503(client):
     assert response.status_code == 503
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `python -m pytest tests/test_api.py -v`
-Expected: `ImportError` or collection failure — `api.index` has no `ALPACA_API_KEY`/`requests` usage yet, and `/api/get-bars` doesn't exist (404 on every request, assertions fail).
+Expected: `ImportError` or collection failure — `api.index` has no `StockHistoricalDataClient` usage yet, and `/api/get-bars` doesn't exist (404 on every request, assertions fail).
 
-- [ ] **Step 5: Implement the Alpaca helpers and the `/api/get-bars` route**
+- [ ] **Step 4: Implement the Alpaca helpers and the `/api/get-bars` route**
 
 At the top of `api/index.py`, replace:
 
@@ -166,10 +180,13 @@ with:
 import os
 from datetime import datetime, timedelta, timezone
 
-import requests
 from flask import Flask, request, jsonify, render_template
 import finnhub
 import yfinance as yf
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.enums import DataFeed
 ```
 
 (`random` is dropped here — it was only used by the synthetic-history fallback being removed in Task 3.)
@@ -179,18 +196,13 @@ Immediately after the existing `finnhub_client = ...` line, add:
 ```python
 ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
-ALPACA_DATA_URL = "https://data.alpaca.markets/v2"
-ALPACA_HEADERS = {
-    "APCA-API-KEY-ID": ALPACA_API_KEY,
-    "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
-}
 
 RANGE_TO_ALPACA = {
-    "1D": {"timeframe": "5Min", "days": 1},
-    "5D": {"timeframe": "30Min", "days": 5},
-    "1M": {"timeframe": "1Day", "days": 30},
-    "3M": {"timeframe": "1Day", "days": 90},
-    "6M": {"timeframe": "1Day", "days": 180},
+    "1D": (TimeFrame(5, TimeFrameUnit.Minute), 1),
+    "5D": (TimeFrame(30, TimeFrameUnit.Minute), 5),
+    "1M": (TimeFrame.Day, 30),
+    "3M": (TimeFrame.Day, 90),
+    "6M": (TimeFrame.Day, 180),
 }
 
 
@@ -198,29 +210,47 @@ def alpaca_configured():
     return bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
 
 
-def alpaca_get_bars(symbol, range_key):
+def get_alpaca_client():
     if not alpaca_configured():
         raise RuntimeError("Alpaca API keys are not configured.")
+    return StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 
-    config = RANGE_TO_ALPACA[range_key]
-    start = (datetime.now(timezone.utc) - timedelta(days=config["days"])).strftime("%Y-%m-%dT%H:%M:%SZ")
-    url = f"{ALPACA_DATA_URL}/stocks/{symbol}/bars"
-    params = {"timeframe": config["timeframe"], "start": start, "limit": 500, "feed": "iex"}
 
-    response = requests.get(url, headers=ALPACA_HEADERS, params=params, timeout=10)
-    response.raise_for_status()
-    payload = response.json()
+def _get_stock_bars(symbol, timeframe, days):
+    client = get_alpaca_client()
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+
+    request_params = StockBarsRequest(
+        symbol_or_symbols=symbol,
+        timeframe=timeframe,
+        start=start,
+        end=end,
+        feed=DataFeed.IEX,
+    )
+    bars = client.get_stock_bars(request_params)
+    df = bars.df
+
+    if df.empty:
+        return []
+
+    return df.reset_index().to_dict("records")
+
+
+def alpaca_get_bars(symbol, range_key):
+    timeframe, days = RANGE_TO_ALPACA[range_key]
+    records = _get_stock_bars(symbol, timeframe, days)
 
     return [
         {
-            "time": bar["t"],
-            "open": bar["o"],
-            "high": bar["h"],
-            "low": bar["l"],
-            "close": bar["c"],
-            "volume": bar["v"],
+            "time": int(record["timestamp"].timestamp()),
+            "open": round(float(record["open"]), 2),
+            "high": round(float(record["high"]), 2),
+            "low": round(float(record["low"]), 2),
+            "close": round(float(record["close"]), 2),
+            "volume": int(record["volume"]),
         }
-        for bar in payload.get("bars", [])
+        for record in records
     ]
 ```
 
@@ -241,7 +271,7 @@ def get_bars():
         bars = alpaca_get_bars(symbol, range_key)
     except RuntimeError as err:
         return jsonify({"error": str(err)}), 503
-    except requests.RequestException as err:
+    except Exception as err:
         return jsonify({"error": f"Alpaca request failed: {err}"}), 502
 
     if not bars:
@@ -250,12 +280,12 @@ def get_bars():
     return jsonify({"symbol": symbol, "range": range_key, "bars": bars})
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_api.py -v`
 Expected: all 5 tests PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add requirements-dev.txt api/__init__.py conftest.py tests/test_api.py api/index.py
@@ -271,8 +301,8 @@ git commit -m "feat: add Alpaca-backed /api/get-bars endpoint"
 - Modify: `tests/test_api.py` (append tests)
 
 **Interfaces:**
-- Consumes: `alpaca_configured()`, `ALPACA_HEADERS`, `ALPACA_DATA_URL` from Task 1.
-- Produces (used by Task 4 frontend): route `GET /api/get-live-price?symbol=` returning `{"symbol": str, "price": float, "timestamp": str}`.
+- Consumes: `alpaca_configured()`, `get_alpaca_client()` from Task 1.
+- Produces (used by Task 4 frontend): route `GET /api/get-live-price?symbol=` returning `{"symbol": str, "price": float, "timestamp": int}` (`timestamp` is Unix seconds).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -281,14 +311,21 @@ Append to `tests/test_api.py`:
 ```python
 @patch("api.index.ALPACA_API_KEY", "test-key")
 @patch("api.index.ALPACA_SECRET_KEY", "test-secret")
-@patch("api.index.requests.get")
-def test_get_live_price_returns_price(mock_get, client):
-    mock_get.return_value = mock_response({"trade": {"p": 187.42, "t": "2026-08-23T14:00:00Z"}})
+@patch("api.index.StockHistoricalDataClient")
+def test_get_live_price_returns_price(mock_client_cls, client):
+    mock_client = MagicMock()
+    mock_client.get_stock_latest_trade.return_value = {
+        "AAPL": SimpleNamespace(price=187.42, timestamp=pd.Timestamp("2026-08-23T14:00:00Z"))
+    }
+    mock_client_cls.return_value = mock_client
 
     response = client.get("/api/get-live-price?symbol=AAPL")
 
     assert response.status_code == 200
-    assert response.get_json() == {"symbol": "AAPL", "price": 187.42, "timestamp": "2026-08-23T14:00:00Z"}
+    data = response.get_json()
+    assert data["symbol"] == "AAPL"
+    assert data["price"] == 187.42
+    assert data["timestamp"] == int(pd.Timestamp("2026-08-23T14:00:00Z").timestamp())
 
 
 @patch("api.index.ALPACA_API_KEY", "")
@@ -314,18 +351,15 @@ In `api/index.py`, add this function directly after `alpaca_get_bars`:
 
 ```python
 def alpaca_get_latest_trade(symbol):
-    if not alpaca_configured():
-        raise RuntimeError("Alpaca API keys are not configured.")
+    client = get_alpaca_client()
+    request_params = StockLatestTradeRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
+    latest_trades = client.get_stock_latest_trade(request_params)
 
-    url = f"{ALPACA_DATA_URL}/stocks/{symbol}/trades/latest"
-    response = requests.get(url, headers=ALPACA_HEADERS, params={"feed": "iex"}, timeout=10)
-    response.raise_for_status()
-    trade = response.json().get("trade", {})
-
-    if "p" not in trade:
+    if symbol not in latest_trades:
         raise RuntimeError(f"No latest trade data for '{symbol}'.")
 
-    return {"price": trade["p"], "timestamp": trade.get("t")}
+    trade = latest_trades[symbol]
+    return {"price": round(float(trade.price), 2), "timestamp": int(trade.timestamp.timestamp())}
 ```
 
 Add the route directly after `/api/get-bars`:
@@ -341,7 +375,7 @@ def get_live_price():
         trade = alpaca_get_latest_trade(symbol)
     except RuntimeError as err:
         return jsonify({"error": str(err)}), 503
-    except requests.RequestException as err:
+    except Exception as err:
         return jsonify({"error": f"Alpaca request failed: {err}"}), 502
 
     return jsonify({"symbol": symbol, "price": trade["price"], "timestamp": trade["timestamp"]})
@@ -368,7 +402,7 @@ git commit -m "feat: add Alpaca-backed /api/get-live-price endpoint"
 - Modify: `tests/test_api.py` (append tests)
 
 **Interfaces:**
-- Consumes: `alpaca_configured()`, `ALPACA_HEADERS`, `ALPACA_DATA_URL`, `finnhub_client` (existing).
+- Consumes: `get_alpaca_client()`, `_get_stock_bars()`, `alpaca_get_latest_trade()` (Tasks 1-2), `finnhub_client`, `yf` (existing).
 - Produces: `GET /api/get-quote?symbol=` now returns `{"symbol", "price", "pc", "previous_close"}` (the `"history"` field is removed — the new chart owns history via `/api/get-bars`).
 
 - [ ] **Step 1: Write the failing tests**
@@ -378,17 +412,17 @@ Append to `tests/test_api.py`:
 ```python
 @patch("api.index.ALPACA_API_KEY", "test-key")
 @patch("api.index.ALPACA_SECRET_KEY", "test-secret")
-@patch("api.index.requests.get")
-def test_get_quote_prefers_alpaca_over_finnhub(mock_get, client):
-    def fake_get(url, headers=None, params=None, timeout=None):
-        if url.endswith("/trades/latest"):
-            return mock_response({"trade": {"p": 187.42, "t": "2026-08-23T14:00:00Z"}})
-        return mock_response({"bars": [
-            {"t": "2026-08-19T00:00:00Z", "o": 180.0, "h": 182.0, "l": 179.0, "c": 181.0, "v": 900},
-            {"t": "2026-08-20T00:00:00Z", "o": 181.0, "h": 186.0, "l": 180.5, "c": 185.5, "v": 950},
-        ]})
-
-    mock_get.side_effect = fake_get
+@patch("api.index.StockHistoricalDataClient")
+def test_get_quote_prefers_alpaca_over_finnhub(mock_client_cls, client):
+    mock_client = MagicMock()
+    mock_client.get_stock_latest_trade.return_value = {
+        "AAPL": SimpleNamespace(price=187.42, timestamp=pd.Timestamp("2026-08-23T14:00:00Z"))
+    }
+    mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
+        {"timestamp": "2026-08-19T00:00:00Z", "open": 180.0, "high": 182.0, "low": 179.0, "close": 181.0, "volume": 900},
+        {"timestamp": "2026-08-20T00:00:00Z", "open": 181.0, "high": 186.0, "low": 180.5, "close": 185.5, "volume": 950},
+    ])
+    mock_client_cls.return_value = mock_client
 
     response = client.get("/api/get-quote?symbol=AAPL")
 
@@ -425,21 +459,12 @@ In `api/index.py`, add this helper directly after `alpaca_get_latest_trade`:
 
 ```python
 def alpaca_get_previous_close(symbol):
-    if not alpaca_configured():
-        raise RuntimeError("Alpaca API keys are not configured.")
+    records = _get_stock_bars(symbol, TimeFrame.Day, 10)
 
-    start = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    url = f"{ALPACA_DATA_URL}/stocks/{symbol}/bars"
-    params = {"timeframe": "1Day", "start": start, "limit": 10, "feed": "iex"}
-
-    response = requests.get(url, headers=ALPACA_HEADERS, params=params, timeout=10)
-    response.raise_for_status()
-    bars = response.json().get("bars", [])
-
-    if len(bars) < 2:
+    if len(records) < 2:
         raise RuntimeError(f"Not enough daily bars to compute previous close for '{symbol}'.")
 
-    return bars[-2]["c"]
+    return round(float(records[-2]["close"]), 2)
 ```
 
 Replace the entire existing `get_quote` function (the one decorated `@app.route("/api/get-quote", methods=["GET"])`, unchanged since before Task 1) with:
@@ -511,7 +536,7 @@ git commit -m "feat: make /api/get-quote try Alpaca before Finnhub/yfinance"
 - Modify: `templates/dashboard.html` (full rewrite — CDN include, widget markup/CSS, and the chart/live-update JS; the account overview cards, order form, portfolio table, and trade-execution JS are unchanged)
 
 **Interfaces:**
-- Consumes: `GET /api/get-quote` (Task 3 shape), `GET /api/get-bars?symbol=&range=` (Task 1 shape), `GET /api/get-live-price?symbol=` (Task 2 shape).
+- Consumes: `GET /api/get-quote` (Task 3 shape), `GET /api/get-bars?symbol=&range=` (Task 1 shape, `bars[].time` is Unix seconds), `GET /api/get-live-price?symbol=` (Task 2 shape).
 
 - [ ] **Step 1: Replace `templates/dashboard.html` with the new version**
 
@@ -924,7 +949,7 @@ Write the complete file:
             }
 
             currentBars = data.bars.map(bar => ({
-                time: Math.floor(new Date(bar.time).getTime() / 1000),
+                time: bar.time,
                 open: bar.open,
                 high: bar.high,
                 low: bar.low,

@@ -1,7 +1,30 @@
 # TradingView-Style Live Chart — Design Spec
 
 Date: 2026-08-23
-Status: Approved by user, pending implementation plan
+Status: Approved by user, implementation in progress
+
+## Update (2026-08-24)
+
+Before implementation started, `requirements.txt` and `api/index.py` were
+found to already contain unrelated scratch work from a separate experiment:
+`requirements.txt` had `alpaca-py==0.27.0` declared (with `yfinance`/
+`finnhub-python`/`groq` commented out), and `api/index.py` had a large
+commented-out draft block at the bottom using `alpaca-py` and Groq. Root-level
+`dashboard.html`/`index.html` (outside `templates/`) were also found —
+confirmed unrelated and left untouched, `.gitignore`d.
+
+Two decisions were made in light of this:
+
+- **Use the `alpaca-py` SDK** (`StockHistoricalDataClient`,
+  `StockBarsRequest`, `StockLatestTradeRequest`) instead of hand-rolled
+  `requests` calls, since it was already a declared dependency. All "raw
+  REST via `requests`" language below is superseded by this — see the
+  implementation plan for the actual SDK-based design.
+- **Keep the Finnhub/yfinance fallback** in `/api/get-quote` as originally
+  specced — `yfinance` and `finnhub-python` were restored to
+  `requirements.txt`'s active section.
+- The commented-out draft block in `api/index.py` and the `# groq==0.9.0`
+  line in `requirements.txt` are unrelated leftovers and are left untouched.
 
 ## Purpose
 
