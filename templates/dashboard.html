@@ -18,28 +18,41 @@
 
         .chart-widget {
             background-color: #131722;
-            border-radius: 8px;
-            padding: 12px 16px 8px;
+            border-radius: 10px;
+            padding: 18px 20px 14px;
             color: #d1d4dc;
         }
         .chart-widget-header {
             display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 8px;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 16px;
         }
-        .chart-widget-title { font-weight: 700; font-size: 0.95rem; }
-        .chart-widget-ohlc { font-size: 0.75rem; color: #8898aa; margin-top: 2px; }
+        .chart-widget-titlebar {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+        }
+        .chart-widget-title { font-weight: 700; font-size: 1.05rem; }
+        .chart-widget-ohlc { font-size: 0.8rem; color: #8898aa; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
         .chart-widget-ohlc .ohlc-up { color: #26a69a; }
         .chart-widget-ohlc .ohlc-down { color: #ef5350; }
-        .chart-widget-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .chart-widget-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px 16px;
+        }
+        .chart-widget-controls-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .chart-range-btn, .chart-style-btn, .chart-sma-btn {
             background-color: #1e222d;
             color: #d1d4dc;
             border: 1px solid #2a2e39;
             font-size: 0.75rem;
+            padding: 0.3rem 0.65rem;
         }
         .chart-range-btn.chart-range-active,
         .chart-style-btn.chart-style-active,
@@ -48,8 +61,13 @@
             color: #ffffff;
             border-color: #2962ff;
         }
-        .chart-widget-price { height: 260px; width: 100%; }
-        .chart-widget-volume { height: 80px; width: 100%; margin-top: 4px; }
+        .chart-widget-price { height: 380px; width: 100%; }
+        .chart-widget-volume { height: 96px; width: 100%; margin-top: 6px; }
+        .chart-widget-price a, .chart-widget-volume a { display: none !important; }
+        @media (max-width: 991.98px) {
+            .chart-widget-price { height: 300px; }
+            .chart-widget-volume { height: 80px; }
+        }
     </style>
 </head>
 <body>
@@ -104,14 +122,14 @@
         </div>
 
         <div class="row">
-            <!-- Trade Station -->
-            <div class="col-lg-4 mb-4">
+            <!-- Market Chart -->
+            <div class="col-lg-9 mb-4">
                 <div class="card p-4 h-100">
                     <h4 class="fw-bold text-secondary mb-4">Trade Station</h4>
 
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Search Ticker Symbol</label>
-                        <div class="input-group">
+                        <div class="input-group" style="max-width: 360px;">
                             <input type="text" id="symbolInput" class="form-control text-uppercase" placeholder="e.g., AAPL">
                             <button class="btn btn-outline-primary" type="button" onclick="searchQuote()" id="searchBtn">Get Quote</button>
                         </div>
@@ -119,22 +137,26 @@
 
                     <!-- Quote Result Area -->
                     <div id="quoteArea" class="bg-light p-3 rounded-3 mb-3" style="display: none;">
-                        <h5 id="quoteSymbol" class="fw-bold mb-2">--</h5>
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="text-muted small">Current / Pre-Market:</span>
-                            <span id="quotePrice" class="text-dark fw-bold">$--</span>
+                        <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2">
+                            <h5 id="quoteSymbol" class="fw-bold mb-0">--</h5>
+                            <div class="d-flex gap-4">
+                                <div>
+                                    <span class="text-muted small d-block">Current / Pre-Market</span>
+                                    <span id="quotePrice" class="text-dark fw-bold">$--</span>
+                                </div>
+                                <div>
+                                    <span class="text-muted small d-block">Last Close</span>
+                                    <span id="quotePc" class="text-secondary fw-semibold">$--</span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted small">Last Close:</span>
-                            <span id="quotePc" class="text-secondary fw-semibold">$--</span>
-                        </div>
-                        <p id="quoteError" class="text-danger small mt-2 mb-0" style="display: none;"></p>
+                        <p id="quoteError" class="text-danger small mt-2 mb-0"></p>
                     </div>
 
                     <!-- Live Chart Widget -->
-                    <div id="chartContainer" class="chart-widget mb-4" style="display: none;">
+                    <div id="chartContainer" class="chart-widget" style="display: none;">
                         <div class="chart-widget-header">
-                            <div>
+                            <div class="chart-widget-titlebar">
                                 <div class="chart-widget-title" id="chartTitle">-- — 6M</div>
                                 <div class="chart-widget-ohlc" id="chartOhlc">O -- H -- L -- C --</div>
                             </div>
@@ -146,18 +168,26 @@
                                     <button type="button" class="btn chart-range-btn" data-range="3M">3M</button>
                                     <button type="button" class="btn chart-range-btn chart-range-active" data-range="6M">6M</button>
                                 </div>
-                                <div class="btn-group btn-group-sm chart-style-group" role="group" aria-label="Style">
-                                    <button type="button" class="btn chart-style-btn chart-style-active" data-style="candlestick">Candlestick</button>
-                                    <button type="button" class="btn chart-style-btn" data-style="line">Line</button>
+                                <div class="chart-widget-controls-right">
+                                    <div class="btn-group btn-group-sm chart-style-group" role="group" aria-label="Style">
+                                        <button type="button" class="btn chart-style-btn chart-style-active" data-style="candlestick">Candlestick</button>
+                                        <button type="button" class="btn chart-style-btn" data-style="line">Line</button>
+                                    </div>
+                                    <button type="button" class="btn btn-sm chart-sma-btn" id="smaToggleBtn">SMA (20) Off</button>
                                 </div>
-                                <button type="button" class="btn btn-sm chart-sma-btn" id="smaToggleBtn">SMA (20) Off</button>
                             </div>
                         </div>
                         <div id="priceChart" class="chart-widget-price"></div>
                         <div id="volumeChart" class="chart-widget-volume"></div>
                     </div>
+                </div>
+            </div>
 
-                    <!-- Order Form -->
+            <!-- Order Ticket -->
+            <div class="col-lg-3 mb-4">
+                <div class="card p-4 h-100">
+                    <h4 class="fw-bold text-secondary mb-4">Order Ticket</h4>
+
                     <div id="orderArea" style="opacity: 0.5; pointer-events: none;">
                         <div class="mb-3">
                             <label class="form-label fw-semibold">Shares Quantity</label>
@@ -178,12 +208,15 @@
                         <div id="tradeMessage" class="mt-3 text-center small fw-bold"></div>
                     </div>
 
+                    <p class="text-muted small mt-4 mb-0" id="orderHint">Search a ticker to enable trading.</p>
                 </div>
             </div>
+        </div>
 
+        <div class="row">
             <!-- Portfolio Table -->
-            <div class="col-lg-8 mb-4">
-                <div class="card p-4 h-100">
+            <div class="col-12 mb-4">
+                <div class="card p-4">
                     <div class="d-flex justify-content-between align-items-center mb-4">
                         <h4 class="fw-bold text-secondary mb-0">Open Positions</h4>
                         <button class="btn btn-sm btn-outline-secondary" onclick="refreshPortfolioPrices()" id="refreshBtn">
@@ -346,6 +379,7 @@
                     const orderArea = document.getElementById('orderArea');
                     orderArea.style.opacity = '1';
                     orderArea.style.pointerEvents = 'auto';
+                    document.getElementById('orderHint').style.display = 'none';
 
                     calculateTotal();
                 } else {
@@ -356,6 +390,7 @@
                 hideChartWidget();
                 document.getElementById('orderArea').style.opacity = '0.5';
                 document.getElementById('orderArea').style.pointerEvents = 'none';
+                document.getElementById('orderHint').style.display = 'block';
                 quoteArea.style.display = 'block';
                 document.getElementById('quoteSymbol').innerText = symbol;
                 document.getElementById('quotePrice').innerText = 'Error';
@@ -695,6 +730,7 @@
                 hideChartWidget();
                 document.getElementById('orderArea').style.opacity = '0.5';
                 document.getElementById('orderArea').style.pointerEvents = 'none';
+                document.getElementById('orderHint').style.display = 'block';
                 document.getElementById('quoteArea').style.display = 'none';
                 updateDashboardUI();
                 refreshPortfolioPrices();
