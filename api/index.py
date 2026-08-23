@@ -1,13 +1,78 @@
-import os
-import random
+﻿import os
+from datetime import datetime, timedelta, timezone
+
 from flask import Flask, request, jsonify, render_template
 import finnhub
 import yfinance as yf
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.enums import DataFeed
 
 app = Flask(__name__, template_folder="../templates")
 
 FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY", "")
 finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY) if FINNHUB_API_KEY else None
+
+ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
+ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
+
+RANGE_TO_ALPACA = {
+    "1D": (TimeFrame(5, TimeFrameUnit.Minute), 1),
+    "5D": (TimeFrame(30, TimeFrameUnit.Minute), 5),
+    "1M": (TimeFrame.Day, 30),
+    "3M": (TimeFrame.Day, 90),
+    "6M": (TimeFrame.Day, 180),
+}
+
+
+def alpaca_configured():
+    return bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
+
+
+def get_alpaca_client():
+    if not alpaca_configured():
+        raise RuntimeError("Alpaca API keys are not configured.")
+    return StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+
+
+def _get_stock_bars(symbol, timeframe, days):
+    client = get_alpaca_client()
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+
+    request_params = StockBarsRequest(
+        symbol_or_symbols=symbol,
+        timeframe=timeframe,
+        start=start,
+        end=end,
+        feed=DataFeed.IEX,
+    )
+    bars = client.get_stock_bars(request_params)
+    df = bars.df
+
+    if df.empty:
+        return []
+
+    return df.reset_index().to_dict("records")
+
+
+def alpaca_get_bars(symbol, range_key):
+    timeframe, days = RANGE_TO_ALPACA[range_key]
+    records = _get_stock_bars(symbol, timeframe, days)
+
+    return [
+        {
+            "time": int(record["timestamp"].timestamp()),
+            "open": round(float(record["open"]), 2),
+            "high": round(float(record["high"]), 2),
+            "low": round(float(record["low"]), 2),
+            "close": round(float(record["close"]), 2),
+            "volume": int(record["volume"]),
+        }
+        for record in records
+    ]
+
 
 # 1. Page Routes
 @app.route("/", methods=["GET"])
@@ -17,6 +82,29 @@ def home():
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
     return render_template("dashboard.html")
+
+@app.route("/api/get-bars", methods=["GET"])
+def get_bars():
+    symbol = request.args.get("symbol", "").strip().upper()
+    range_key = request.args.get("range", "6M").strip().upper()
+
+    if not symbol:
+        return jsonify({"error": "Symbol parameter is required."}), 400
+    if range_key not in RANGE_TO_ALPACA:
+        return jsonify({"error": f"Unsupported range '{range_key}'."}), 400
+
+    try:
+        bars = alpaca_get_bars(symbol, range_key)
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 503
+    except Exception as err:
+        return jsonify({"error": f"Alpaca request failed: {err}"}), 502
+
+    if not bars:
+        return jsonify({"error": f"No bar data available for '{symbol}'."}), 404
+
+    return jsonify({"symbol": symbol, "range": range_key, "bars": bars})
+
 
 @app.route("/learn", methods=["GET"])
 def learn():
@@ -233,3 +321,4 @@ if __name__ == "__main__":
 # if __name__ == '__main__':
 #     app.run(debug=False)
     
+
