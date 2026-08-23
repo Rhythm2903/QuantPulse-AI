@@ -86,6 +86,15 @@ def alpaca_get_latest_trade(symbol):
     return {"price": round(float(trade.price), 2), "timestamp": int(trade.timestamp.timestamp())}
 
 
+def alpaca_get_previous_close(symbol):
+    records = _get_stock_bars(symbol, TimeFrame.Day, 10)
+
+    if len(records) < 2:
+        raise RuntimeError(f"Not enough daily bars to compute previous close for '{symbol}'.")
+
+    return round(float(records[-2]["close"]), 2)
+
+
 # 1. Page Routes
 @app.route("/", methods=["GET"])
 def home():
@@ -149,62 +158,44 @@ def get_quote():
     if not symbol:
         return jsonify({"error": "Symbol parameter is required."}), 400
 
+    price = None
+    pc = None
+
     try:
-        price = None
-        pc = None
-        history = []
+        trade = alpaca_get_latest_trade(symbol)
+        price = trade["price"]
+        pc = alpaca_get_previous_close(symbol)
+    except Exception as err:
+        print(f"Alpaca quote fetch failed for {symbol}: {err}")
 
-        if finnhub_client:
-            try:
-                res = finnhub_client.quote(symbol)
-                if res and res.get("c"):
-                    price = res.get("c")
-                    pc = res.get("pc")
-            except Exception:
-                pass
+    if price is None and finnhub_client:
+        try:
+            res = finnhub_client.quote(symbol)
+            if res and res.get("c"):
+                price = res.get("c")
+                pc = res.get("pc")
+        except Exception:
+            pass
 
+    if price is None:
         try:
             ticker = yf.Ticker(symbol)
-            df = ticker.history(period="1mo", interval="1d")
-            
+            df = ticker.history(period="5d", interval="1d")
             if not df.empty:
-                if price is None or price == 0:
-                    price = float(df["Close"].iloc[-1])
-                if pc is None or pc == 0:
-                    pc = float(df["Close"].iloc[-2]) if len(df) > 1 else price
-
-                chart_data = df.tail(10)
-                for index, row in chart_data.iterrows():
-                    history.append({
-                        "date": index.strftime("%b %d"),
-                        "price": round(float(row["Close"]), 2)
-                    })
+                price = float(df["Close"].iloc[-1])
+                pc = float(df["Close"].iloc[-2]) if len(df) > 1 else price
         except Exception as e:
             print(f"yfinance fetch error: {e}")
 
-        if price and not history:
-            base_price = float(price)
-            for i in range(10):
-                variance = (random.random() - 0.48) * (base_price * 0.02)
-                p = round(base_price + variance * (i - 9), 2)
-                history.append({
-                    "date": f"Pt {i+1}",
-                    "price": max(0.01, p)
-                })
+    if price is None:
+        return jsonify({"error": f"Unable to fetch price data for symbol '{symbol}'"}), 404
 
-        if price is None:
-            return jsonify({"error": f"Unable to fetch price data for symbol '{symbol}'"}), 404
-
-        return jsonify({
-            "symbol": symbol,
-            "price": round(float(price), 2),
-            "pc": round(float(pc), 2) if pc else round(float(price), 2),
-            "previous_close": round(float(pc), 2) if pc else round(float(price), 2),
-            "history": history
-        })
-
-    except Exception as err:
-        return jsonify({"error": str(err)}), 500
+    return jsonify({
+        "symbol": symbol,
+        "price": round(float(price), 2),
+        "pc": round(float(pc), 2) if pc else round(float(price), 2),
+        "previous_close": round(float(pc), 2) if pc else round(float(price), 2),
+    })
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

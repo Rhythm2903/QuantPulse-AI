@@ -120,3 +120,41 @@ def test_get_live_price_without_keys_returns_503(client):
 def test_get_live_price_missing_symbol_returns_400(client):
     response = client.get("/api/get-live-price")
     assert response.status_code == 400
+
+
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+def test_get_quote_prefers_alpaca_over_finnhub(mock_client_cls, client):
+    mock_client = MagicMock()
+    mock_client.get_stock_latest_trade.return_value = {
+        "AAPL": SimpleNamespace(price=187.42, timestamp=pd.Timestamp("2026-08-23T14:00:00Z"))
+    }
+    mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
+        {"timestamp": "2026-08-19T00:00:00Z", "open": 180.0, "high": 182.0, "low": 179.0, "close": 181.0, "volume": 900},
+        {"timestamp": "2026-08-20T00:00:00Z", "open": 181.0, "high": 186.0, "low": 180.5, "close": 185.5, "volume": 950},
+    ])
+    mock_client_cls.return_value = mock_client
+
+    response = client.get("/api/get-quote?symbol=AAPL")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["symbol"] == "AAPL"
+    assert data["price"] == 187.42
+    assert data["pc"] == 181.0
+    assert "history" not in data
+
+
+@patch("api.index.ALPACA_API_KEY", "")
+@patch("api.index.ALPACA_SECRET_KEY", "")
+@patch("api.index.finnhub_client")
+def test_get_quote_falls_back_to_finnhub_without_alpaca_keys(mock_finnhub, client):
+    mock_finnhub.quote.return_value = {"c": 190.0, "pc": 188.0}
+
+    response = client.get("/api/get-quote?symbol=AAPL")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["price"] == 190.0
+    assert data["pc"] == 188.0
