@@ -89,10 +89,22 @@ def alpaca_get_latest_trade(symbol):
 def alpaca_get_previous_close(symbol):
     records = _get_stock_bars(symbol, TimeFrame.Day, 10)
 
-    if len(records) < 2:
+    if len(records) == 0:
         raise RuntimeError(f"Not enough daily bars to compute previous close for '{symbol}'.")
 
-    return round(float(records[-2]["close"]), 2)
+    last_bar_is_today = records[-1]["timestamp"].date() == datetime.now(timezone.utc).date()
+
+    if last_bar_is_today:
+        # Today's session is still forming, so records[-1] isn't a completed
+        # session yet -- the real previous close is the bar before it.
+        if len(records) < 2:
+            raise RuntimeError(f"Not enough daily bars to compute previous close for '{symbol}'.")
+        return round(float(records[-2]["close"]), 2)
+
+    # No bar for "today" (market currently closed, e.g. overnight, weekend,
+    # or holiday) -- the last bar already IS the most recent completed
+    # session's close.
+    return round(float(records[-1]["close"]), 2)
 
 
 # 1. Page Routes

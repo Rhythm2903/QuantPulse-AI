@@ -261,12 +261,25 @@
             document.querySelectorAll('.chart-range-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     if (!activeQuote) return;
+
+                    const rangeError = document.getElementById('quoteError');
+                    rangeError.style.display = 'none';
+
+                    const previouslyActiveBtn = document.querySelector('.chart-range-btn.chart-range-active');
+
                     document.querySelectorAll('.chart-range-btn').forEach(b => b.classList.remove('chart-range-active'));
                     btn.classList.add('chart-range-active');
+
                     try {
                         await loadChartForSymbol(activeQuote.symbol, btn.dataset.range);
                     } catch (error) {
                         console.error('Failed to load range', error);
+                        btn.classList.remove('chart-range-active');
+                        if (previouslyActiveBtn) {
+                            previouslyActiveBtn.classList.add('chart-range-active');
+                        }
+                        rangeError.innerText = 'Chart unavailable for this range: ' + error.message;
+                        rangeError.style.display = 'block';
                     }
                 });
             });
@@ -325,6 +338,8 @@
                     } catch (chartError) {
                         console.error('Chart load failed', chartError);
                         hideChartWidget();
+                        quoteError.innerText = 'Chart unavailable: ' + chartError.message;
+                        quoteError.style.display = 'block';
                     }
 
                     // Enable Order Area

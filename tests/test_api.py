@@ -3,8 +3,9 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from alpaca.data.enums import DataFeed
 
-from api.index import app
+from api.index import RANGE_TO_ALPACA, alpaca_get_previous_close, app
 
 
 @pytest.fixture
@@ -14,12 +15,20 @@ def client():
         yield test_client
 
 
+def _to_utc_timestamp(value):
+    """Coerce a raw value or an already tz-aware pd.Timestamp to UTC."""
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
 def make_bars_df(symbol, rows):
     if not rows:
         return pd.DataFrame()
 
     idx = pd.MultiIndex.from_tuples(
-        [(symbol, pd.Timestamp(r["timestamp"], tz="UTC")) for r in rows],
+        [(symbol, _to_utc_timestamp(r["timestamp"])) for r in rows],
         names=["symbol", "timestamp"],
     )
     return pd.DataFrame(
@@ -130,9 +139,12 @@ def test_get_quote_prefers_alpaca_over_finnhub(mock_client_cls, client):
     mock_client.get_stock_latest_trade.return_value = {
         "AAPL": SimpleNamespace(price=187.42, timestamp=pd.Timestamp("2026-08-23T14:00:00Z"))
     }
+    # The most recent bar is dated "today" (session still forming), so the
+    # correct previous close is the bar before it -- see
+    # alpaca_get_previous_close's stale-pc handling.
     mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
         {"timestamp": "2026-08-19T00:00:00Z", "open": 180.0, "high": 182.0, "low": 179.0, "close": 181.0, "volume": 900},
-        {"timestamp": "2026-08-20T00:00:00Z", "open": 181.0, "high": 186.0, "low": 180.5, "close": 185.5, "volume": 950},
+        {"timestamp": pd.Timestamp.now(tz="UTC"), "open": 181.0, "high": 186.0, "low": 180.5, "close": 185.5, "volume": 950},
     ])
     mock_client_cls.return_value = mock_client
 
@@ -186,3 +198,110 @@ def test_get_quote_fills_pc_from_finnhub_when_alpaca_price_succeeds_but_bars_fai
     assert data["symbol"] == "AAPL"
     assert data["price"] == 187.42  # From Alpaca
     assert data["pc"] == 185.5      # From Finnhub (Alpaca bars failed)
+
+
+# --- alpaca_get_previous_close: stale-pc regression coverage ---
+#
+# When the market is currently forming today's session, the most recent daily
+# bar (records[-1]) is that in-progress bar, so the true previous close is the
+# bar before it (records[-2]). But overnight/weekends/holidays there is no
+# "today" bar at all -- records[-1] already IS the last completed session's
+# close, so previous close must come from records[-1] directly, not
+# records[-2] (which would be stale by one full session).
+
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+def test_previous_close_uses_second_to_last_bar_when_today_bar_is_forming(mock_client_cls):
+    today_ts = pd.Timestamp.now(tz="UTC")
+    mock_client = MagicMock()
+    mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
+        {"timestamp": "2026-08-19T00:00:00Z", "open": 180.0, "high": 182.0, "low": 179.0, "close": 181.0, "volume": 900},
+        {"timestamp": today_ts, "open": 181.0, "high": 186.0, "low": 180.5, "close": 185.5, "volume": 950},
+    ])
+    mock_client_cls.return_value = mock_client
+
+    pc = alpaca_get_previous_close("AAPL")
+
+    assert pc == 181.0
+
+
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+def test_previous_close_uses_last_bar_when_market_currently_closed(mock_client_cls):
+    mock_client = MagicMock()
+    mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
+        {"timestamp": "2020-01-06T00:00:00Z", "open": 150.0, "high": 152.0, "low": 149.0, "close": 151.0, "volume": 800},
+        {"timestamp": "2020-01-07T00:00:00Z", "open": 151.0, "high": 155.0, "low": 150.5, "close": 154.5, "volume": 850},
+    ])
+    mock_client_cls.return_value = mock_client
+
+    pc = alpaca_get_previous_close("AAPL")
+
+    assert pc == 154.5
+
+
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+def test_previous_close_single_bar_not_today_is_usable_alone(mock_client_cls):
+    mock_client = MagicMock()
+    mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
+        {"timestamp": "2020-01-07T00:00:00Z", "open": 151.0, "high": 155.0, "low": 150.5, "close": 154.5, "volume": 850},
+    ])
+    mock_client_cls.return_value = mock_client
+
+    pc = alpaca_get_previous_close("AAPL")
+
+    assert pc == 154.5
+
+
+# --- DataFeed.IEX + RANGE_TO_ALPACA coverage ---
+#
+# Every prior test mocks StockHistoricalDataClient wholesale and only asserts
+# on the JSON response -- nothing inspects the StockBarsRequest /
+# StockLatestTradeRequest objects actually built, so a broken feed=DataFeed.IEX
+# constraint (required -- the free/paper Alpaca plan only allows IEX, not SIP)
+# or a broken RANGE_TO_ALPACA timeframe mapping would go undetected.
+
+@pytest.mark.parametrize("range_key", ["1D", "5D", "1M", "3M", "6M"])
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+def test_get_bars_uses_iex_feed_and_correct_timeframe_for_range(mock_client_cls, client, range_key):
+    mock_client = MagicMock()
+    mock_client.get_stock_bars.return_value.df = make_bars_df("AAPL", [
+        {"timestamp": "2026-08-20T00:00:00Z", "open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0, "volume": 1000},
+    ])
+    mock_client_cls.return_value = mock_client
+
+    response = client.get(f"/api/get-bars?symbol=AAPL&range={range_key}")
+
+    assert response.status_code == 200
+    mock_client.get_stock_bars.assert_called_once()
+    request_arg = mock_client.get_stock_bars.call_args[0][0]
+
+    assert request_arg.feed == DataFeed.IEX
+
+    expected_timeframe, _ = RANGE_TO_ALPACA[range_key]
+    assert str(request_arg.timeframe) == str(expected_timeframe)
+
+
+@patch("api.index.ALPACA_API_KEY", "test-key")
+@patch("api.index.ALPACA_SECRET_KEY", "test-secret")
+@patch("api.index.StockHistoricalDataClient")
+def test_get_live_price_uses_iex_feed(mock_client_cls, client):
+    mock_client = MagicMock()
+    mock_client.get_stock_latest_trade.return_value = {
+        "AAPL": SimpleNamespace(price=187.42, timestamp=pd.Timestamp("2026-08-23T14:00:00Z"))
+    }
+    mock_client_cls.return_value = mock_client
+
+    response = client.get("/api/get-live-price?symbol=AAPL")
+
+    assert response.status_code == 200
+    mock_client.get_stock_latest_trade.assert_called_once()
+    request_arg = mock_client.get_stock_latest_trade.call_args[0][0]
+
+    assert request_arg.feed == DataFeed.IEX
