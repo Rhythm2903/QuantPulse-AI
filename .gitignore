@@ -1,3 +1,9 @@
+# Environment & Secrets
+.env
+.env.*
+*.env
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]
@@ -5,16 +11,35 @@ __pycache__/
 .venv/
 venv/
 env/
+ENV/
+.pytest_cache/
 
-# Environment Variables
-.env
+# Node
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
 
-# Vercel
+# Vercel & Editor & System
 .vercel/
-
-# Unrelated scratch files (not part of this project)
-/dashboard.html
-/index.html
-
-# Git worktrees
+.claude/
 .worktrees/
+.DS_Store
+Thumbs.db
+
+# Legacy drafts, word/pdf documents, and scratch files
+*.docx
+*.pdf
+*.doc
+*.log
+*.tmp
+*.txt
+!requirements*.txt
+*.html
+!templates/**/*.html
+VertilitySync_clone/
+browser_extension/
+logs/
+final draft for liya/
